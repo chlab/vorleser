@@ -1,0 +1,43 @@
+diff --git a/lib/core.py b/lib/core.py
+index 2585bfa0e..9a5726462 100644
+--- a/lib/core.py
++++ b/lib/core.py
+@@ -427,8 +427,6 @@ def extract_custom_model(session_id)->str|None:
+                 status, msg = extractor.extract_voice()
+                 if status:
+                     session['voice'] = final_voice_file
+-                    if os.path.exists(file_src):
+-                        os.remove(file_src)
+                     if os.path.exists(voice_ref):
+                         os.remove(voice_ref)
+                     return model_path
+@@ -3367,7 +3365,7 @@ def convert_ebook(args:dict)->tuple:
+                 ebook_file = Path(session['ebook_src']).name
+                 ebook_name = get_sanitized(Path(session['ebook_src']).stem)
+             print(f"Processing eBook file: {ebook_file}")
+-            session['custom_model_dir'] = os.path.join(models_dir, '__sessions',f"model-{session_id}")
++            session['custom_model_dir'] = os.path.join(models_dir, '__custom_models')
+             session['script_mode'] = str(args['script_mode']) if args.get('script_mode') is not None else NATIVE
+             session['is_gui_process'] = bool(args['is_gui_process'])
+             session['blocks_preview'] = bool(args['blocks_preview']) if args.get('blocks_preview') else False
+@@ -3436,7 +3434,10 @@ def convert_ebook(args:dict)->tuple:
+                             os.makedirs(session['custom_model_dir'], exist_ok=True)
+                         custom_src_path = Path(session['custom_model'])
+                         custom_src_name = custom_src_path.stem
+-                        if not os.path.exists(os.path.join(session['custom_model_dir'], custom_src_name)):
++                        cached_model_path = os.path.join(session['custom_model_dir'], session['tts_engine'], custom_src_name)
++                        if os.path.exists(cached_model_path):
++                            session['custom_model'] = cached_model_path
++                        else:
+                             try:
+                                 if analyze_uploaded_file(session['custom_model'], default_engine_settings[session['tts_engine']]['files']):
+                                     model = extract_custom_model(session_id)
+@@ -3445,7 +3446,7 @@ def convert_ebook(args:dict)->tuple:
+                                     else:
+                                         error = f"{model} could not be extracted or mandatory files are missing"
+                                 else:
+-                                    error = f'{os.path.basename(f)} is not a valid model or some required files are missing'
++                                    error = f'{os.path.basename(session["custom_model"])} is not a valid model or some required files are missing'
+                             except ModuleNotFoundError as e:
+                                 error = f"No presets module for TTS engine '{session['tts_engine']}': {e}"
+                     if session.get('voice'):

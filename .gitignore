@@ -1,0 +1,9 @@
+ebooks/*
+!ebooks/.gitkeep
+audiobooks/*
+!audiobooks/.gitkeep
+voices/*
+!voices/.gitkeep
+__pycache__/
+*.pyc
+.DS_Store
