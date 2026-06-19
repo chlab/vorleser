@@ -68,19 +68,22 @@ python3 prepare_book.py ebooks/mybook.epub
 
 Extracts all chapters into `ebooks/mybook_chapters/`. If Ollama is running, also writes `_paused` versions with LLM-inserted pause markers. These are the files you'll feed to ebook2audiobook.
 
+> **Important:** ebook2audiobook's `app.py` reads `VERSION.txt` (and other files) with paths relative to the current directory, so it **must be run from inside the ebook2audiobook directory** — running it from the vorleser root fails with `FileNotFoundError: VERSION.txt`. The commands below `cd` into `$E2A` first and pass **absolute paths** for the ebook, model and output so they still resolve. `$VORLESER` is this repo's root.
+
 ### 2. Convert a single chapter (for testing)
 
 ```bash
+VORLESER="$(pwd)"            # run this from the vorleser repo root
 E2A=../ebook2audiobook
-mkdir -p audiobooks/test
+mkdir -p "$VORLESER/audiobooks/test"
 
-$E2A/python_env/bin/python3 $E2A/app.py \
+cd "$E2A" && ./python_env/bin/python3 app.py \
   --headless \
-  --ebook ebooks/mybook_chapters/004_chapter4_paused.txt \
+  --ebook "$VORLESER/ebooks/mybook_chapters/004_chapter4_paused.txt" \
   --language deu \
   --tts_engine PIPER \
-  --custom_model mymodel.zip \
-  --output_dir audiobooks/test
+  --custom_model "$VORLESER/mymodel.zip" \
+  --output_dir "$VORLESER/audiobooks/test"
 ```
 
 ### 3. Convert the full book
@@ -88,16 +91,17 @@ $E2A/python_env/bin/python3 $E2A/app.py \
 Pass an `--ebooks_dir` instead of `--ebook` to convert all chapters:
 
 ```bash
+VORLESER="$(pwd)"            # run this from the vorleser repo root
 E2A=../ebook2audiobook
-mkdir -p audiobooks/mybook
+mkdir -p "$VORLESER/audiobooks/mybook"
 
-$E2A/python_env/bin/python3 $E2A/app.py \
+cd "$E2A" && ./python_env/bin/python3 app.py \
   --headless \
-  --ebooks_dir ebooks/mybook_chapters \
+  --ebooks_dir "$VORLESER/ebooks/mybook_chapters" \
   --language deu \
   --tts_engine PIPER \
-  --custom_model mymodel.zip \
-  --output_dir audiobooks/mybook
+  --custom_model "$VORLESER/mymodel.zip" \
+  --output_dir "$VORLESER/audiobooks/mybook"
 ```
 
 The individual chapter `.m4b` files can then be joined with ffmpeg or imported directly into an audiobook player that handles folders.
