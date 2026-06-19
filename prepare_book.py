@@ -18,7 +18,7 @@ from html.parser import HTMLParser
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
-from insert_pauses import OLLAMA_URL, process_text
+from insert_pauses import MODEL, OLLAMA_URL, process_text
 
 # ── text extraction ──────────────────────────────────────────────────────────
 
