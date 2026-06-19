@@ -37,14 +37,6 @@ Download a German Piper model. The [Thorsten-Voice](https://huggingface.co/Thors
 
 The `.onnx` and `.onnx.json` files go in the repo root or anywhere convenient. See [Packaging a custom Piper model](#packaging-a-custom-piper-model) below.
 
-### Voice reference sample (optional)
-
-For XTTS voice cloning, place a clean WAV sample of your target speaker in `voices/`. Aim for 30–60 seconds of varied, natural speech at 22050Hz mono. Multiple clips can be stitched together with:
-
-```bash
-ffmpeg -i "concat:clip1.wav|clip2.wav|clip3.wav" -ac 1 -ar 22050 voices/speaker.wav
-```
-
 ## Setup
 
 ```bash
@@ -107,31 +99,21 @@ ebook2audiobook expects a zip containing exactly these files:
 ```
 model.onnx        ← your .onnx file, renamed
 config.onnx.json  ← your .onnx.json file, renamed
-ref.wav           ← short voice sample (used internally, does not affect synthesis)
+ref.wav           ← placeholder only; Piper ignores it entirely
 ```
 
-Build it:
+Piper is not a voice-cloning system — `ref.wav` is only there to pass ebook2audiobook's zip validation. A placeholder `ref.wav` is already included in this repo.
 
-```python
-import zipfile, wave, struct, math, json
+Build the zip with the included helper:
 
-# tweak length_scale for speaking rate (1.0 = default, 1.1 = ~10% slower)
-with open("de_DE-thorsten-medium.onnx.json") as f:
-    cfg = json.load(f)
-cfg["inference"]["length_scale"] = 1.1
-with open("de_DE-thorsten-medium.onnx.json", "w") as f:
-    json.dump(cfg, f)
+```bash
+python3 package_model.py de_DE-thorsten-medium.onnx
+```
 
-# minimal ref.wav — replace with a real voice sample for better results
-sr, n = 22050, 22050
-with wave.open("ref.wav", "w") as w:
-    w.setnchannels(1); w.setsampwidth(2); w.setframerate(sr)
-    w.writeframes(struct.pack(f"<{n}h", *[int(8000*math.sin(2*math.pi*440*t/sr)) for t in range(n)]))
+This patches `length_scale` to 1.1 (slightly slower than default) and writes `de_DE-thorsten-medium.zip`. Override with `--length-scale` if needed:
 
-with zipfile.ZipFile("mymodel.zip", "w", zipfile.ZIP_DEFLATED) as z:
-    z.write("de_DE-thorsten-medium.onnx", "model.onnx")
-    z.write("de_DE-thorsten-medium.onnx.json", "config.onnx.json")
-    z.write("ref.wav", "ref.wav")
+```bash
+python3 package_model.py de_DE-thorsten-medium.onnx --length-scale 1.2
 ```
 
 ## Patches applied to ebook2audiobook
