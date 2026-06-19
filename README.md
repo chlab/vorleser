@@ -34,7 +34,6 @@ Mistral NeMo (12B) is recommended for German — it was explicitly trained with 
 Download a German Piper model. The [Thorsten-Voice](https://huggingface.co/Thorsten-Voice) models work well:
 
 - `de_DE-thorsten-medium` — neutral, natural-sounding
-- `de_DE-thorsten_emotional-medium` — more expressive (but can degrade phoneme accuracy)
 
 The `.onnx` and `.onnx.json` files go in the repo root or anywhere convenient. See [Packaging a custom Piper model](#packaging-a-custom-piper-model) below.
 
