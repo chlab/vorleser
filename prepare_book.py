@@ -18,7 +18,7 @@ from html.parser import HTMLParser
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
-from insert_pauses import MODEL, OLLAMA_URL, process_text
+from insert_pauses import MODEL, OLLAMA_URL, Progress, count_blocks, process_text
 
 # ── text extraction ──────────────────────────────────────────────────────────
 
@@ -105,7 +105,10 @@ def main():
         print("Ollama not reachable — writing plain text only (run insert_pauses.py later)\n")
 
     chapters = _epub_chapters(epub_path)
-    print(f"Found {len(chapters)} chapters in {epub_path.name}\n")
+    total_blocks = sum(count_blocks(text) for _, text in chapters) if ollama_ok else 0
+    progress = Progress(total_blocks)
+    print(f"Found {len(chapters)} chapters in {epub_path.name}"
+          + (f" ({total_blocks} blocks to process)\n" if ollama_ok else "\n"))
 
     for i, (name, text) in enumerate(chapters, 1):
         prefix = f"{i:03}"
@@ -114,7 +117,7 @@ def main():
 
         if ollama_ok:
             print(f"[{i}/{len(chapters)}] {name} — inserting pauses…")
-            paused = process_text(text)
+            paused = process_text(text, progress)
             paused_path = output_dir / f"{prefix}_{name}_paused.txt"
             paused_path.write_text(paused, encoding="utf-8")
         else:

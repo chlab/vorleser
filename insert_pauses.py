@@ -12,7 +12,7 @@ Usage:
 
 If output path is omitted, writes <input>_paused.txt alongside the input file.
 """
-import json, re, sys, urllib.request, urllib.error
+import json, re, sys, time, urllib.request, urllib.error
 from pathlib import Path
 
 OLLAMA_URL = "http://localhost:11434/api/chat"
@@ -76,9 +76,47 @@ def call_ollama(text: str) -> str:
         raw = json.loads(r.read())["message"]["content"]
     return fix_punctuation(strip_markdown(raw))
 
-def process_block(block: str, idx: int, total: int) -> str:
+def count_blocks(text: str) -> int:
+    """Number of non-empty paragraph blocks — the unit of LLM work."""
+    return sum(1 for b in text.split("\n\n") if b.strip())
+
+
+def _fmt_dur(seconds: float) -> str:
+    seconds = int(seconds)
+    h, rem = divmod(seconds, 3600)
+    m, s   = divmod(rem, 60)
+    if h: return f"{h}h{m:02d}m"
+    if m: return f"{m}m{s:02d}s"
+    return f"{s}s"
+
+
+class Progress:
+    """Tracks block-level progress across a whole book for an overall % + ETA."""
+    def __init__(self, total_blocks: int):
+        self.total  = total_blocks
+        self.done   = 0
+        self._start = time.monotonic()
+
+    def tick(self) -> None:
+        self.done += 1
+
+    def status(self) -> str:
+        pct = (self.done / self.total * 100) if self.total else 0.0
+        elapsed = time.monotonic() - self._start
+        if self.done and elapsed > 0:
+            eta = (self.total - self.done) * (elapsed / self.done)
+            eta_str = _fmt_dur(eta)
+        else:
+            eta_str = "—"
+        return f"overall {self.done}/{self.total} · {pct:4.1f}% · ETA {eta_str}"
+
+
+def process_block(block: str, idx: int, total: int, progress: "Progress | None" = None) -> str:
+    if progress is not None:
+        progress.tick()
     preview = block[:72].replace("\n", " ").replace("\t", " ")
-    print(f"  [{idx:2}/{total}] {preview}…")
+    suffix  = f"   ·  {progress.status()}" if progress is not None else ""
+    print(f"  [{idx:2}/{total}] {preview}…{suffix}")
 
     orig_words = extract_words(block)
     if len(orig_words) < MIN_WORDS:
@@ -103,8 +141,11 @@ def process_block(block: str, idx: int, total: int) -> str:
     print(f"           ✓")
     return result
 
-def process_text(text: str) -> str:
-    """Run pause insertion over a full multi-paragraph text. Returns processed text."""
+def process_text(text: str, progress: "Progress | None" = None) -> str:
+    """Run pause insertion over a full multi-paragraph text. Returns processed text.
+
+    Pass a shared `Progress` to show book-wide position/ETA across all chapters.
+    """
     blocks  = text.split("\n\n")
     total   = len(blocks)
     results = []
@@ -113,7 +154,7 @@ def process_text(text: str) -> str:
         if not stripped:
             results.append("")
             continue
-        results.append(process_block(stripped, i, total))
+        results.append(process_block(stripped, i, total, progress))
     return "\n\n".join(results)
 
 def main():
@@ -122,22 +163,14 @@ def main():
         sys.exit(f"Usage: python3 {Path(__file__).name} <input.txt> [output.txt]")
     out = Path(sys.argv[2]) if len(sys.argv) > 2 else inp.with_stem(inp.stem + "_paused")
 
-    text   = inp.read_text(encoding="utf-8")
-    blocks = text.split("\n\n")
+    text = inp.read_text(encoding="utf-8")
 
     print(f"Model  : {MODEL}")
-    print(f"Input  : {inp.name}  ({len(blocks)} blocks)")
+    print(f"Input  : {inp.name}  ({count_blocks(text)} blocks)")
     print(f"Output : {out.name}\n")
 
-    results = []
-    for i, block in enumerate(blocks, 1):
-        stripped = block.strip()
-        if not stripped:
-            results.append("")
-            continue
-        results.append(process_block(stripped, i, len(blocks)))
-
-    out.write_text("\n\n".join(results), encoding="utf-8")
+    paused = process_text(text, Progress(count_blocks(text)))
+    out.write_text(paused, encoding="utf-8")
     print(f"\nDone → {out}")
 
 if __name__ == "__main__":
