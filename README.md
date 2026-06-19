@@ -35,6 +35,16 @@ Download a German Piper model. The [Thorsten-Voice](https://huggingface.co/Thors
 
 - `de_DE-thorsten-medium` — neutral, natural-sounding
 
+All Piper voices are published in the [`rhasspy/piper-voices`](https://huggingface.co/rhasspy/piper-voices) repo. Each voice needs **two** files — the model (`.onnx`) and its config (`.onnx.json`). These are public, so no login or `huggingface-cli` is needed:
+
+```bash
+BASE="https://huggingface.co/rhasspy/piper-voices/resolve/main/de/de_DE/thorsten/medium"
+curl -L -o de_DE-thorsten-medium.onnx      "$BASE/de_DE-thorsten-medium.onnx"
+curl -L -o de_DE-thorsten-medium.onnx.json "$BASE/de_DE-thorsten-medium.onnx.json"
+```
+
+Other quality tiers live alongside it — swap `medium` for `low` (smaller/faster) or `high` (larger/slower) in the path. Browse [`de/de_DE/thorsten/`](https://huggingface.co/rhasspy/piper-voices/tree/main/de/de_DE/thorsten) for the full list.
+
 The `.onnx` and `.onnx.json` files go in the repo root or anywhere convenient. See [Packaging a custom Piper model](#packaging-a-custom-piper-model) below.
 
 ## Setup

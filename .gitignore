@@ -7,3 +7,8 @@ voices/*
 __pycache__/
 *.pyc
 .DS_Store
+
+# Piper voice models (downloaded / packaged locally, not committed)
+*.onnx
+*.onnx.json
+*.zip
