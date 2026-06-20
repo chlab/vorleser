@@ -66,7 +66,9 @@ This clones ebook2audiobook into the sibling directory, applies the vorleser pat
 python3 prepare_book.py ebooks/mybook.epub
 ```
 
-Extracts all chapters into `ebooks/mybook_chapters/`. If Ollama is running, also writes `_paused` versions with LLM-inserted pause markers. These are the files you'll feed to ebook2audiobook.
+Extracts all chapters into `ebooks/mybook_chapters/` (plain text). If Ollama is running, it also writes the LLM pause-processed versions into a **`paused/` subdirectory** — `ebooks/mybook_chapters/paused/`. Those are the files you feed to ebook2audiobook.
+
+> **Why a subdirectory:** ebook2audiobook's `--ebooks_dir` converts *every* `.txt` it finds. If the plain and `_paused` files share one directory, it converts both — doubling the work and output. Keeping the paused files in their own subdir means you point `--ebooks_dir` there and convert only the pause-enhanced text.
 
 > **Important:** ebook2audiobook's `app.py` reads `VERSION.txt` (and other files) with paths relative to the current directory, so it **must be run from inside the ebook2audiobook directory** — running it from the vorleser root fails with `FileNotFoundError: VERSION.txt`. The commands below `cd` into `$E2A` first and pass **absolute paths** for the ebook, model and output so they still resolve. `$VORLESER` is this repo's root.
 
@@ -79,7 +81,7 @@ mkdir -p "$VORLESER/audiobooks/test"
 
 cd "$E2A" && ./python_env/bin/python3 app.py \
   --headless \
-  --ebook "$VORLESER/ebooks/mybook_chapters/004_chapter4_paused.txt" \
+  --ebook "$VORLESER/ebooks/mybook_chapters/paused/004_chapter4_paused.txt" \
   --language deu \
   --tts_engine PIPER \
   --custom_model "$VORLESER/mymodel.zip" \
@@ -97,14 +99,32 @@ mkdir -p "$VORLESER/audiobooks/mybook"
 
 cd "$E2A" && ./python_env/bin/python3 app.py \
   --headless \
-  --ebooks_dir "$VORLESER/ebooks/mybook_chapters" \
+  --ebooks_dir "$VORLESER/ebooks/mybook_chapters/paused" \
   --language deu \
   --tts_engine PIPER \
   --custom_model "$VORLESER/mymodel.zip" \
   --output_dir "$VORLESER/audiobooks/mybook"
 ```
 
-The individual chapter `.m4b` files can then be joined with ffmpeg or imported directly into an audiobook player that handles folders.
+> Run this **in the foreground** in an interactive terminal. ebook2audiobook
+> shells out to `ffmpeg`/`calibre`, which read the controlling terminal; if the
+> job is backgrounded, those reads raise `SIGTTIN` and the whole process
+> **freezes** (visible as process state `T` in `ps`). It may also prompt
+> interactively (e.g. "conversion already exists — [s]kip/[y]es"), which needs
+> a real terminal. Piper is fast, so a foreground run is fine. See
+> [Troubleshooting](#troubleshooting) if you must run it unattended.
+
+### 4. Join chapters into one audiobook
+
+`--ebooks_dir` produces one `.m4b` per chapter. To stitch them into a single
+`.m4b` with chapter markers (lossless stream-copy):
+
+```bash
+./join_book.sh "$VORLESER/audiobooks/mybook" "$VORLESER/audiobooks/mybook.m4b"
+```
+
+Or just keep the folder of numbered `.m4b` files — most audiobook players treat
+it as one book with per-file chapters.
 
 ## Packaging a custom Piper model
 
@@ -145,3 +165,35 @@ python3 package_model.py de_DE-thorsten-medium.onnx --length-scale 1.2
 - **Pause quality**: the LLM preprocessing helps most with long philosophical or literary sentences; short conversational text benefits less
 - **Hardware**: for full-book conversion with XTTS, prefer a machine with active cooling — MacBook Airs throttle significantly under sustained load. A Mac with M-series Pro/Max chip is strongly recommended
 - **Ollama**: make sure `ollama serve` is running before calling `prepare_book.py`
+
+## Troubleshooting
+
+**`FileNotFoundError: VERSION.txt` when running `app.py`**
+ebook2audiobook reads `VERSION.txt` (and other files) relative to the current
+directory. Run it from *inside* the ebook2audiobook directory and pass absolute
+paths for `--ebook`/`--ebooks_dir`, `--custom_model` and `--output_dir` (the
+Usage commands already do this).
+
+**`SSL: CERTIFICATE_VERIFY_FAILED` during conversion**
+The conda env bakes its absolute install path into OpenSSL's cert location. If
+you **moved the ebook2audiobook directory** after the bootstrap installer ran,
+that path no longer exists and every HTTPS download fails. Fixes:
+- Symlink the old path to the new one so the baked path resolves:
+  `ln -s /new/path/ebook2audiobook /old/path/ebook2audiobook`, or
+- recreate the conda env in place (re-run the bootstrap), or
+- per-run: `export SSL_CERT_FILE="$(./python_env/bin/python3 -m certifi)"` and
+  `export REQUESTS_CA_BUNDLE="$SSL_CERT_FILE"`.
+Conda environments are not relocatable — avoid moving the directory after setup.
+
+**Conversion freezes (process state `T` in `ps`), no progress for ages**
+`app.py` shells out to `ffmpeg`/`calibre`, which read the controlling terminal.
+A **backgrounded** job doing so receives `SIGTTIN` and the whole process group
+stops. Run conversions in the **foreground**. If you must run unattended,
+redirect stdin from `/dev/null` *and* avoid the resume path's interactive prompt
+(`--session` triggers a "[s]kip/[y]es" `input()` that then fails on EOF) — i.e.
+start fresh rather than resuming, or pre-answer the prompt.
+
+**Interrupted conversion**
+Headless mode prints a session id and supports `--session <id>` to resume — but
+note the resume prompt above. For a foreground rerun it's often simplest to just
+restart and answer `[y]es` to overwrite (Piper is fast).
