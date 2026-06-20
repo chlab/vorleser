@@ -10,8 +10,12 @@ Usage:
     python3 prepare_book.py <input.epub> [output_dir]
 
 Output directory defaults to ebooks/<book-stem>_chapters/.
-Each file is named 001_chapter.txt, 002_chapter.txt, etc.
-Paused versions (_paused suffix) are written alongside if Ollama is reachable.
+Each plain file is named 001_chapter.txt, 002_chapter.txt, etc.
+
+If Ollama is reachable, the pause-processed versions are written into a
+separate `paused/` subdirectory (001_chapter_paused.txt, …). Point
+ebook2audiobook's --ebooks_dir at that `paused/` subdir so it converts only
+the pause-enhanced text — not the plain originals as well.
 """
 import re, sys, urllib.request, zipfile
 from html.parser import HTMLParser
@@ -94,6 +98,7 @@ def main():
     output_dir = Path(sys.argv[2]) if len(sys.argv) > 2 else \
                  Path("ebooks") / (epub_path.stem + "_chapters")
     output_dir.mkdir(parents=True, exist_ok=True)
+    paused_dir = output_dir / "paused"   # pause-processed files live here, alone
 
     # probe Ollama availability once
     try:
@@ -107,6 +112,8 @@ def main():
     chapters = _epub_chapters(epub_path)
     total_blocks = sum(count_blocks(text) for _, text in chapters) if ollama_ok else 0
     progress = Progress(total_blocks)
+    if ollama_ok:
+        paused_dir.mkdir(parents=True, exist_ok=True)
     print(f"Found {len(chapters)} chapters in {epub_path.name}"
           + (f" ({total_blocks} blocks to process)\n" if ollama_ok else "\n"))
 
@@ -118,12 +125,14 @@ def main():
         if ollama_ok:
             print(f"[{i}/{len(chapters)}] {name} — inserting pauses…")
             paused = process_text(text, progress)
-            paused_path = output_dir / f"{prefix}_{name}_paused.txt"
+            paused_path = paused_dir / f"{prefix}_{name}_paused.txt"
             paused_path.write_text(paused, encoding="utf-8")
         else:
             print(f"[{i}/{len(chapters)}] {name} — saved")
 
     print(f"\nDone → {output_dir}")
+    if ollama_ok:
+        print(f"Pause-enhanced chapters (feed these to ebook2audiobook):\n  {paused_dir}")
 
 if __name__ == "__main__":
     main()
