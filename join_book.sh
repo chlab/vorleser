@@ -65,12 +65,15 @@ for f in "${files[@]}"; do
 done
 
 # Concatenate (stream copy) and attach chapter metadata.
+# -map 0:a — take ONLY the audio stream. The per-chapter .m4b files also carry
+# a bin_data stream and an mjpeg cover-art stream, neither of which the .m4b
+# (ipod) muxer can stream-copy, so they must be dropped.
 # -nostdin / </dev/null: ffmpeg must not read the terminal (avoids SIGTTIN if
 # this is ever run backgrounded).
 ffmpeg -nostdin -hide_banner -loglevel warning -y \
   -f concat -safe 0 -i "$concat_list" \
   -i "$meta" -map_metadata 1 \
-  -c copy -movflags +faststart \
+  -map 0:a -c:a copy -movflags +faststart \
   "$OUT" < /dev/null
 
 echo "Done → $OUT"
