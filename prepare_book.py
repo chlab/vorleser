@@ -54,8 +54,48 @@ def _html_to_text(html: str) -> str:
     text = "".join(p.chunks).strip()
     return re.sub(r"\n{3,}", "\n\n", text)
 
-def _epub_chapters(epub_path: Path) -> list[tuple[str, str]]:
-    """Return list of (name, text) for each spine document that has real content."""
+def _ncx_titles(zf: zipfile.ZipFile, opf, opf_dir: str, manifest_all: dict) -> dict:
+    """Map content-document stem → chapter title from the NCX table of contents.
+
+    The first navPoint that targets a given file wins, so each chapter gets its
+    top-level heading rather than a deeper sub-section anchor (#…) within it.
+    """
+    NS  = {"opf": "http://www.idpf.org/2007/opf"}
+    NCX = {"n": "http://www.daisy.org/z3986/2005/ncx/"}
+    spine_el = opf.find("opf:spine", NS)
+    toc_id   = spine_el.get("toc") if spine_el is not None else None
+    ncx_href = manifest_all.get(toc_id) if toc_id else None
+    if not ncx_href:
+        return {}
+    ncx_full = f"{opf_dir}/{ncx_href}" if opf_dir != "." else ncx_href
+    titles = {}
+    try:
+        ncx = ET.fromstring(zf.read(ncx_full))
+    except KeyError:
+        return {}
+    for np in ncx.findall(".//n:navPoint", NCX):
+        label   = np.find("n:navLabel/n:text", NCX)
+        content = np.find("n:content", NCX)
+        if label is None or content is None:
+            continue
+        stem = Path(content.get("src", "").split("#", 1)[0]).stem
+        if stem and stem not in titles:   # first (top-level) navPoint wins
+            titles[stem] = (label.text or "").strip()
+    return titles
+
+def _book_metadata(opf) -> dict:
+    """Pull the book title and author from the OPF Dublin Core metadata."""
+    DC = "http://purl.org/dc/elements/1.1/"
+    title  = next((e.text for e in opf.iter(f"{{{DC}}}title")   if e.text), "")
+    author = next((e.text for e in opf.iter(f"{{{DC}}}creator") if e.text), "")
+    return {"title": title.strip(), "author": author.strip()}
+
+def _epub_chapters(epub_path: Path) -> tuple[list[tuple[str, str, str]], dict]:
+    """Return (chapters, book_meta).
+
+    chapters is a list of (name, text, title) for each spine document with real
+    content; title is the chapter's TOC heading (empty if the TOC has none).
+    """
     NS = {"opf": "http://www.idpf.org/2007/opf"}
     chapters = []
     with zipfile.ZipFile(epub_path) as zf:
@@ -65,12 +105,19 @@ def _epub_chapters(epub_path: Path) -> list[tuple[str, str]]:
         opf_dir   = str(Path(opf_path).parent)
         opf       = ET.fromstring(zf.read(opf_path))
 
+        manifest_all = {
+            item.get("id"): item.get("href")
+            for item in opf.findall("opf:manifest/opf:item", NS)
+        }
         manifest  = {
             item.get("id"): item.get("href")
             for item in opf.findall("opf:manifest/opf:item", NS)
             if item.get("media-type") in ("application/xhtml+xml", "text/html")
         }
         spine = [ref.get("idref") for ref in opf.findall("opf:spine/opf:itemref", NS)]
+
+        toc_titles = _ncx_titles(zf, opf, opf_dir, manifest_all)
+        book_meta  = _book_metadata(opf)
 
         for idref in spine:
             href = manifest.get(idref)
@@ -85,20 +132,56 @@ def _epub_chapters(epub_path: Path) -> list[tuple[str, str]]:
             words = len(re.findall(r"\w+", text))
             if words < 30:          # skip covers, blank pages, endnotes
                 continue
-            chapters.append((Path(href).stem, text))
-    return chapters
+            stem = Path(href).stem
+            chapters.append((stem, text, toc_titles.get(stem, "")))
+    return chapters, book_meta
+
+def _humanize(stem: str) -> str:
+    """Best-effort readable title for a chapter the TOC didn't name."""
+    s = re.sub(r"^\d+[-_]", "", stem)          # drop a leading 20- / 001_ prefix
+    s = s.replace("-", " ").replace("_", " ").strip()
+    return s or stem
+
+def _write_titles(path: Path, chapters: list[tuple[str, str, str]], book_meta: dict) -> None:
+    """Write the chapter-title manifest consumed by join_book.sh.
+
+    Format: tab-separated. `#TITLE`/`#ARTIST` header lines carry book metadata;
+    each remaining line is `NNN<TAB>title`. join_book.sh joins only the chapters
+    listed here, in this order — delete a line to drop that chapter, or edit the
+    title text to rename it.
+    """
+    lines = []
+    if book_meta.get("title"):
+        lines.append(f"#TITLE\t{book_meta['title']}")
+    if book_meta.get("author"):
+        lines.append(f"#ARTIST\t{book_meta['author']}")
+    for i, (name, _text, title) in enumerate(chapters, 1):
+        lines.append(f"{i:03}\t{title or _humanize(name)}")
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 # ── main ─────────────────────────────────────────────────────────────────────
 
 def main():
-    if len(sys.argv) < 2:
-        sys.exit(f"Usage: python3 {Path(__file__).name} <input.epub> [output_dir]")
+    args = [a for a in sys.argv[1:] if a != "--titles-only"]
+    titles_only = "--titles-only" in sys.argv
+    if not args:
+        sys.exit(f"Usage: python3 {Path(__file__).name} [--titles-only] <input.epub> [output_dir]")
 
-    epub_path  = Path(sys.argv[1])
-    output_dir = Path(sys.argv[2]) if len(sys.argv) > 2 else \
+    epub_path  = Path(args[0])
+    output_dir = Path(args[1]) if len(args) > 1 else \
                  Path("ebooks") / (epub_path.stem + "_chapters")
     output_dir.mkdir(parents=True, exist_ok=True)
     paused_dir = output_dir / "paused"   # pause-processed files live here, alone
+
+    # --titles-only just (re)builds the chapter manifest from the epub TOC, with
+    # no text extraction or LLM work — handy to recover titles for a book whose
+    # audio was already generated.
+    if titles_only:
+        chapters, book_meta = _epub_chapters(epub_path)
+        titles_path = output_dir / "titles.tsv"
+        _write_titles(titles_path, chapters, book_meta)
+        print(f"Wrote {len(chapters)} chapter titles → {titles_path}")
+        return
 
     # probe Ollama availability once
     try:
@@ -109,15 +192,19 @@ def main():
         ollama_ok = False
         print("Ollama not reachable — writing plain text only (run insert_pauses.py later)\n")
 
-    chapters = _epub_chapters(epub_path)
-    total_blocks = sum(count_blocks(text) for _, text in chapters) if ollama_ok else 0
+    chapters, book_meta = _epub_chapters(epub_path)
+    titles_path = output_dir / "titles.tsv"
+    _write_titles(titles_path, chapters, book_meta)
+    print(f"Chapter title manifest → {titles_path}\n")
+
+    total_blocks = sum(count_blocks(text) for _, text, _ in chapters) if ollama_ok else 0
     progress = Progress(total_blocks)
     if ollama_ok:
         paused_dir.mkdir(parents=True, exist_ok=True)
     print(f"Found {len(chapters)} chapters in {epub_path.name}"
           + (f" ({total_blocks} blocks to process)\n" if ollama_ok else "\n"))
 
-    for i, (name, text) in enumerate(chapters, 1):
+    for i, (name, text, _title) in enumerate(chapters, 1):
         prefix = f"{i:03}"
         plain_path = output_dir / f"{prefix}_{name}.txt"
         plain_path.write_text(text, encoding="utf-8")

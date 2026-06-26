@@ -68,6 +68,13 @@ python3 prepare_book.py ebooks/mybook.epub
 
 Extracts all chapters into `ebooks/mybook_chapters/` (plain text). If Ollama is running, it also writes the LLM pause-processed versions into a **`paused/` subdirectory** — `ebooks/mybook_chapters/paused/`. Those are the files you feed to ebook2audiobook.
 
+It also writes a **chapter-title manifest**, `ebooks/mybook_chapters/titles.tsv`, mapping each chapter's number to its real title from the epub's table of contents (plus the book title/author as `#TITLE`/`#ARTIST` header lines). `join_book.sh` reads this to name the chapters and stamp the book's display metadata — without it, chapters fall back to bare filenames like `chapter1`. The manifest is a plain editable file: **delete a line to drop that chapter** from the final book, or edit the title text to rename it.
+
+> Already generated the audio and just need the manifest? Rebuild it without re-running the (slow) LLM step:
+> ```bash
+> python3 prepare_book.py --titles-only ebooks/mybook.epub
+> ```
+
 > **Why a subdirectory:** ebook2audiobook's `--ebooks_dir` converts *every* `.txt` it finds. If the plain and `_paused` files share one directory, it converts both — doubling the work and output. Keeping the paused files in their own subdir means you point `--ebooks_dir` there and convert only the pause-enhanced text.
 
 > **Important:** ebook2audiobook's `app.py` reads `VERSION.txt` (and other files) with paths relative to the current directory, so it **must be run from inside the ebook2audiobook directory** — running it from the vorleser root fails with `FileNotFoundError: VERSION.txt`. The commands below `cd` into `$E2A` first and pass **absolute paths** for the ebook, model and output so they still resolve. `$VORLESER` is this repo's root.
@@ -120,8 +127,16 @@ cd "$E2A" && ./python_env/bin/python3 app.py \
 `.m4b` with chapter markers (lossless stream-copy):
 
 ```bash
-./join_book.sh "$VORLESER/audiobooks/mybook" "$VORLESER/audiobooks/mybook.m4b"
+./join_book.sh "$VORLESER/audiobooks/mybook" "$VORLESER/audiobooks/mybook.m4b" \
+  '*_paused.m4b' '' "$VORLESER/ebooks/mybook_chapters/titles.tsv"
 ```
+
+The 5th argument is the [titles manifest](#1-prepare-chapters) — it supplies the
+real chapter titles and the book's display title/author (what BookPlayer and
+similar apps show). If you omit it, `join_book.sh` looks for `titles.tsv` in the
+source dir; failing that it prints a warning and falls back to filename-derived
+chapter titles with no book metadata. Arguments 3 and 4 are the file glob and an
+optional cover override; pass `''` to keep their defaults.
 
 Or just keep the folder of numbered `.m4b` files — most audiobook players treat
 it as one book with per-file chapters.
