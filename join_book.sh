@@ -127,28 +127,33 @@ elif ! ffmpeg -nostdin -v error -y -i "$SRC_DIR/${files[0]}" -map 0:v:0 -frames:
   cover=""   # first chapter has no cover stream — proceed without one
 fi
 
-# Concatenate (stream copy) and attach chapter metadata.
-# -map 0:a — take ONLY the audio stream. The per-chapter .m4b files also carry
-# a bin_data stream and an mjpeg cover-art stream, neither of which the .m4b
-# (ipod) muxer can stream-copy as a regular video track, so audio is mapped
-# explicitly and the cover is re-added below as an attached_pic.
+# Concatenate (stream copy) and attach chapter + book metadata — audio only.
+# -map 0:a takes ONLY the audio: the per-chapter files also carry a bin_data
+# and an mjpeg stream, and we deliberately do NOT re-embed the cover as a video
+# track here. Apple Books, Finder and most players (BookPlayer included) read
+# cover art from the MP4 `covr` metadata atom, not a video stream, so the cover
+# is added separately below with AtomicParsley.
 # -nostdin / </dev/null: ffmpeg must not read the terminal (avoids SIGTTIN if
 # this is ever run backgrounded).
+echo "Joining audio + chapters…"
+ffmpeg -nostdin -hide_banner -loglevel warning -y \
+  -f concat -safe 0 -i "$concat_list" \
+  -i "$meta" -map_metadata 1 \
+  -map 0:a -c:a copy -movflags +faststart \
+  "$OUT" < /dev/null
+
+# Embed the cover into the `covr` atom so Apple software and audiobook apps
+# actually display it. AtomicParsley rewrites the file in place (--overWrite).
 if [[ -n "$cover" ]]; then
-  echo "Embedding cover from ${COVER:-first chapter}"
-  ffmpeg -nostdin -hide_banner -loglevel warning -y \
-    -f concat -safe 0 -i "$concat_list" \
-    -i "$meta" -i "$cover" -map_metadata 1 \
-    -map 0:a -map 2:v -c copy -disposition:v:0 attached_pic \
-    -movflags +faststart \
-    "$OUT" < /dev/null
+  if command -v AtomicParsley >/dev/null 2>&1; then
+    echo "Embedding cover (covr atom) from ${COVER:-first chapter}"
+    AtomicParsley "$OUT" --artwork "$cover" --overWrite >/dev/null
+  else
+    echo "AtomicParsley not found — skipping cover art." >&2
+    echo "  Install it for cover support:  brew install atomicparsley" >&2
+  fi
 else
-  echo "No cover found — joining audio only"
-  ffmpeg -nostdin -hide_banner -loglevel warning -y \
-    -f concat -safe 0 -i "$concat_list" \
-    -i "$meta" -map_metadata 1 \
-    -map 0:a -c:a copy -movflags +faststart \
-    "$OUT" < /dev/null
+  echo "No cover found — audio only."
 fi
 
 echo "Done → $OUT"

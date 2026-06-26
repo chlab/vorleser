@@ -17,7 +17,7 @@ Built on top of [ebook2audiobook](https://github.com/DrewThomasson/ebook2audiobo
 Install via Homebrew:
 
 ```bash
-brew install ffmpeg sox espeak-ng ollama
+brew install ffmpeg sox espeak-ng ollama atomicparsley
 brew install --cask calibre
 ```
 
@@ -137,6 +137,14 @@ similar apps show). If you omit it, `join_book.sh` looks for `titles.tsv` in the
 source dir; failing that it prints a warning and falls back to filename-derived
 chapter titles with no book metadata. Arguments 3 and 4 are the file glob and an
 optional cover override; pass `''` to keep their defaults.
+
+The cover is embedded into the MP4 `covr` metadata atom via **AtomicParsley** —
+that's the field Apple Books, Finder and audiobook apps like BookPlayer read for
+artwork. (Embedding it as a video stream, which is the obvious ffmpeg approach,
+leaves the metadata correct but the cover invisible in those apps.) Without the
+override, the cover is pulled from the first chapter's embedded art. If
+AtomicParsley isn't installed, the join still succeeds but warns and skips the
+cover.
 
 Or just keep the folder of numbered `.m4b` files — most audiobook players treat
 it as one book with per-file chapters.
