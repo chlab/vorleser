@@ -198,7 +198,7 @@ Generates, per chapter, a one-sentence thesis, **6–10 concrete bullet points**
 ```bash
 python3 summarize_book.py ebooks/mybook.epub
 # range by chapter number, file stem, or title text:
-python3 summarize_book.py ebooks/mybook.epub --from philia --to danksagung
+python3 summarize_book.py ebooks/mybook.epub --from 12 --to 20
 ```
 
 Output: `ebooks/mybook_chapters/summaries/NNN_<name>_summary.md` per chapter, plus
