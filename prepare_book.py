@@ -83,6 +83,47 @@ def _ncx_titles(zf: zipfile.ZipFile, opf, opf_dir: str, manifest_all: dict) -> d
             titles[stem] = (label.text or "").strip()
     return titles
 
+def chapter_subheadings(epub_path: Path) -> dict:
+    """Map content-document stem → list of its TOC section headings (the sub
+    navPoints that target the same file), in order, EXCLUDING the chapter's own
+    top-level title. Used to scaffold chapter summaries so every thread is
+    covered."""
+    NS  = {"opf": "http://www.idpf.org/2007/opf"}
+    NCX = {"n": "http://www.daisy.org/z3986/2005/ncx/"}
+    with zipfile.ZipFile(epub_path) as zf:
+        container = ET.fromstring(zf.read("META-INF/container.xml"))
+        opf_path  = container.find(".//{urn:oasis:names:tc:opendocument:xmlns:container}rootfile").get("full-path")
+        opf_dir   = str(Path(opf_path).parent)
+        opf       = ET.fromstring(zf.read(opf_path))
+        manifest_all = {item.get("id"): item.get("href")
+                        for item in opf.findall("opf:manifest/opf:item", NS)}
+        spine_el = opf.find("opf:spine", NS)
+        toc_id   = spine_el.get("toc") if spine_el is not None else None
+        ncx_href = manifest_all.get(toc_id) if toc_id else None
+        if not ncx_href:
+            return {}
+        ncx_full = f"{opf_dir}/{ncx_href}" if opf_dir != "." else ncx_href
+        try:
+            ncx = ET.fromstring(zf.read(ncx_full))
+        except KeyError:
+            return {}
+    sections, seen = {}, set()
+    for np in ncx.findall(".//n:navPoint", NCX):
+        label   = np.find("n:navLabel/n:text", NCX)
+        content = np.find("n:content", NCX)
+        if label is None or content is None:
+            continue
+        stem = Path(content.get("src", "").split("#", 1)[0]).stem
+        text = (label.text or "").strip()
+        if not stem or not text:
+            continue
+        if stem not in seen:        # first navPoint for this file is its title
+            seen.add(stem)
+            sections.setdefault(stem, [])
+        else:
+            sections.setdefault(stem, []).append(text)
+    return sections
+
 def _book_metadata(opf) -> dict:
     """Pull the book title and author from the OPF Dublin Core metadata."""
     DC = "http://purl.org/dc/elements/1.1/"
