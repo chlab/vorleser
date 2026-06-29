@@ -149,35 +149,6 @@ cover.
 Or just keep the folder of numbered `.m4b` files — most audiobook players treat
 it as one book with per-file chapters.
 
-## Chapter summaries (optional)
-
-`summarize_book.py` generates a ~150-word abstract and up to three *noteworthy*
-verbatim quotes per chapter, using the same local Ollama model:
-
-```bash
-python3 summarize_book.py ebooks/mybook.epub
-```
-
-Output lands in `ebooks/mybook_chapters/summaries/NNN_<name>_summary.md`, plus a
-combined `ebooks/mybook_chapters/SUMMARY.md`. Already-summarized chapters are
-skipped on re-runs unless you pass `--force`.
-
-Per-chapter summarization only needs one chapter in context at a time, so the
-window is small — the script sizes `num_ctx` per chapter (capped at 32K, which
-covers even the largest chapter here). A 12B model is plenty; the default is
-**mistral-nemo** (German-trained, the same model the pause step uses).
-
-> **Quote fidelity:** small models will occasionally paraphrase a quote or recall
-> a famous line that isn't actually in the chapter. Every returned quote is
-> therefore verified against the source text (the longest verbatim run must
-> appear in the chapter); bare author names, fragments, and anything paraphrased
-> are dropped and reported. So the quotes can be trusted even from a 12B.
-
-Summaries default to German; set `LANG = "en"` at the top of the script for
-English abstracts (quotes stay in the original German). Other tunables there:
-`ABSTRACT_WORDS`, `MAX_QUOTES`, `MIN_QUOTE_WORDS`, `MIN_WORDS` (skip short front
-matter), `TEMPERATURE`.
-
 ## Packaging a custom Piper model
 
 ebook2audiobook expects a zip containing exactly these files:
@@ -210,6 +181,66 @@ python3 package_model.py de_DE-thorsten-medium.onnx --length-scale 1.2
 2. **Cache hit handling** — correctly points `session['custom_model']` to the cached path on subsequent runs
 3. **`UnboundLocalError` bugfix** — fixes a crash when zip validation fails (`f` was used but not defined in that scope)
 4. **Zip preservation** — stops ebook2audiobook from deleting the `.zip` after extraction
+
+## Add-on tools
+
+These are **optional extras, separate from the audiobook pipeline above.** They
+reuse the same chapter extraction (and the local LLM) to produce *text*
+companions to a book — a written summary, and an ebook of that summary. Neither
+is needed to make an audiobook; skip this section if that's all you're after.
+
+### Chapter summaries — `summarize_book.py`
+
+Generates, per chapter, a one-sentence thesis, **6–10 concrete bullet points**
+(~300–400 words total), and up to three *noteworthy* verbatim quotes — aimed at
+"read the summary and you've effectively read the chapter":
+
+```bash
+python3 summarize_book.py ebooks/mybook.epub
+# range by chapter number, file stem, or title text:
+python3 summarize_book.py ebooks/mybook.epub --from philia --to danksagung
+```
+
+Output: `ebooks/mybook_chapters/summaries/NNN_<name>_summary.md` per chapter, plus
+a combined `ebooks/mybook_chapters/SUMMARY.md`. Done chapters are skipped on
+re-runs unless you pass `--force`, so the run is resumable. `--from`/`--to`
+restrict the range (handy when you've already read part of the book).
+
+It feeds the chapter's own TOC sub-headings to the model as a coverage checklist,
+so every thread gets addressed rather than skipped for a vague wrap-up.
+
+> **Model:** defaults to **`qwen3:14b`** (`ollama pull qwen3:14b`) — distinct from
+> the pause step's model. A bigger, better instruction-follower than a 12B is what
+> makes the length/structure/specificity hold up; on a 24 GB Mac a 14B fits
+> comfortably (a 27B+ thrashes). Reasoning mode is disabled for clean JSON.
+> Per-chapter summarization only needs one chapter in context, so `num_ctx` is
+> sized per chapter (capped at 32K).
+
+> **Quote fidelity:** small models occasionally paraphrase a quote or recall a
+> famous line that isn't actually in the chapter. Every quote is therefore
+> verified against the source — the longest verbatim run must appear in the text,
+> and is expanded to whole sentences; bare names, fragments and paraphrases are
+> dropped and reported. So the quotes can be trusted.
+
+Tunables at the top of the script: `MODEL`, `LANG` (`"de"`/`"en"`; quotes stay
+German), `WORDS_LOW`/`WORDS_HIGH`, `POINTS_LOW`/`POINTS_HIGH`, `MAX_QUOTES`,
+`MIN_QUOTE_WORDS`, `MIN_WORDS` (skip short front matter), `TEMPERATURE`.
+
+### An EPUB of the summaries — `make_summary_epub.sh`
+
+Turns `SUMMARY.md` into a portable EPUB with a per-chapter TOC — nice to read on
+an iPhone/iPad in Apple Books. Requires calibre's `ebook-convert`.
+
+```bash
+./make_summary_epub.sh
+# or: ./make_summary_epub.sh path/to/SUMMARY.md out.epub cover.jpg
+```
+
+Title and author are read from the `titles.tsv` manifest next to `SUMMARY.md`
+(the same one `prepare_book.py` writes); a `cover.jpg` placed beside `SUMMARY.md`
+is embedded automatically. Output defaults to
+`ebooks/<book>_zusammenfassung.epub`. AirDrop it to your phone and it opens in
+Apple Books.
 
 ## Tips
 
