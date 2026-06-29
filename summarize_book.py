@@ -77,41 +77,90 @@ name, heading, or single word.
 # ── quote verification ────────────────────────────────────────────────────────
 
 _QUOTE_CHARS = "\"'„“”‚‘’«»"
-_TRIM_CHARS  = _QUOTE_CHARS + " \t,;:—–-."
 
-def _norm(s: str) -> str:
-    """Normalize for verbatim matching: lowercase, unify dashes/ellipsis, drop
-    quote marks entirely, collapse whitespace. Tolerates the cosmetic ways a
-    model rewrites quotes without letting actual paraphrases through."""
-    s = s.lower()
-    for a, b in (("—", "-"), ("–", "-"), ("…", "...")):
-        s = s.replace(a, b)
-    s = re.sub(f"[{re.escape(_QUOTE_CHARS)}]", "", s)
-    return re.sub(r"\s+", " ", s).strip()
+def _norm_char(c: str) -> str:
+    """Single-char normalization shared by quote and source so offsets line up:
+    lowercase, dashes→'-', ellipsis→'.', quote marks dropped (→'')."""
+    c = c.lower()
+    if c in "—–": return "-"
+    if c == "…":  return "."
+    if c in _QUOTE_CHARS: return ""
+    return c
 
-def _best_verbatim(q: str, src_norm: str) -> str | None:
-    """Longest leading run of the model's quote that occurs verbatim in the
-    source. This strips trailing attributions the model tacks on (e.g.
-    `… wirklich." — Moritz Schlick`) and stray quote marks, while still
-    rejecting anything paraphrased."""
-    words = q.strip().strip(_QUOTE_CHARS).split()
+def _norm_quote(s: str) -> str:
+    out, prev_space = [], False
+    for ch in s:
+        c = _norm_char(ch)
+        if not c:
+            continue
+        if c.isspace():
+            if not prev_space:
+                out.append(" ")
+            prev_space = True
+        else:
+            out.append(c)
+            prev_space = False
+    return "".join(out).strip()
+
+def _build_norm(src: str):
+    """Normalized source string + a map from each normalized-char position back to
+    the original source index, so a match can be projected onto the real text."""
+    out, idx, prev_space = [], [], False
+    for i, ch in enumerate(src):
+        c = _norm_char(ch)
+        if not c:
+            continue
+        if c.isspace():
+            if prev_space:
+                continue
+            out.append(" "); idx.append(i); prev_space = True
+        else:
+            out.append(c); idx.append(i); prev_space = False
+    return "".join(out), idx
+
+def _sentence_spans(src: str):
+    """(start, end) char spans for each sentence, splitting on . ! ? … plus any
+    trailing quotes/brackets."""
+    spans, start = [], 0
+    for m in re.finditer(r"[.!?…]+[\s»\"”'’\)\]]*", src):
+        spans.append((start, m.end())); start = m.end()
+    if start < len(src):
+        spans.append((start, len(src)))
+    return spans
+
+def _verbatim_range(qnorm: str, src_norm: str):
+    """Longest leading run of the (normalized) quote present in the source —
+    strips trailing attributions/fragments the model appends. Returns the
+    normalized [start, end) or None."""
+    words = [w for w in qnorm.split(" ") if w]
     for end in range(len(words), MIN_QUOTE_WORDS - 1, -1):
-        cand = " ".join(words[:end]).strip(_TRIM_CHARS)
-        if len(cand.split()) >= MIN_QUOTE_WORDS and _norm(cand) in src_norm:
-            return cand
+        cand = " ".join(words[:end])
+        pos = src_norm.find(cand)
+        if pos != -1:
+            return pos, pos + len(cand)
     return None
 
 def verify_quotes(quotes, source: str):
-    """Keep only quotes verifiably present in the source. Returns (kept, dropped);
-    dropped are bare names, fragments, or paraphrases/hallucinations."""
-    src = _norm(source)
+    """Keep only quotes verifiably present in the source, each expanded to whole
+    sentences and emitted from the original text (real casing/punctuation).
+    Returns (kept, dropped); dropped are bare names, fragments, or
+    paraphrases/hallucinations."""
+    src_norm, idx = _build_norm(source)
+    sents = _sentence_spans(source)
     kept, dropped = [], []
     for q in quotes:
         if not isinstance(q, str) or not q.strip():
             continue
-        cand = _best_verbatim(q, src)
-        if cand:
-            kept.append(cand)
+        rng = _verbatim_range(_norm_quote(q), src_norm)
+        if rng is None:
+            dropped.append(q.strip()); continue
+        o_start, o_end = idx[rng[0]], idx[rng[1] - 1] + 1
+        # expand to the sentence(s) the match falls in → complete-sentence quote
+        lo = next((a for a, b in sents if a <= o_start < b), o_start)
+        hi = next((b for a, b in reversed(sents) if a < o_end <= b), o_end)
+        text = re.sub(r"\s+", " ", source[lo:hi]).strip().strip(_QUOTE_CHARS).strip()
+        if len(text.split()) >= MIN_QUOTE_WORDS and text not in kept:
+            kept.append(text)
         else:
             dropped.append(q.strip())
     return kept[:MAX_QUOTES], dropped
