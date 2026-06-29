@@ -149,6 +149,35 @@ cover.
 Or just keep the folder of numbered `.m4b` files — most audiobook players treat
 it as one book with per-file chapters.
 
+## Chapter summaries (optional)
+
+`summarize_book.py` generates a ~150-word abstract and up to three *noteworthy*
+verbatim quotes per chapter, using the same local Ollama model:
+
+```bash
+python3 summarize_book.py ebooks/mybook.epub
+```
+
+Output lands in `ebooks/mybook_chapters/summaries/NNN_<name>_summary.md`, plus a
+combined `ebooks/mybook_chapters/SUMMARY.md`. Already-summarized chapters are
+skipped on re-runs unless you pass `--force`.
+
+Per-chapter summarization only needs one chapter in context at a time, so the
+window is small — the script sizes `num_ctx` per chapter (capped at 32K, which
+covers even the largest chapter here). A 12B model is plenty; the default is
+**mistral-nemo** (German-trained, the same model the pause step uses).
+
+> **Quote fidelity:** small models will occasionally paraphrase a quote or recall
+> a famous line that isn't actually in the chapter. Every returned quote is
+> therefore verified against the source text (the longest verbatim run must
+> appear in the chapter); bare author names, fragments, and anything paraphrased
+> are dropped and reported. So the quotes can be trusted even from a 12B.
+
+Summaries default to German; set `LANG = "en"` at the top of the script for
+English abstracts (quotes stay in the original German). Other tunables there:
+`ABSTRACT_WORDS`, `MAX_QUOTES`, `MIN_QUOTE_WORDS`, `MIN_WORDS` (skip short front
+matter), `TEMPERATURE`.
+
 ## Packaging a custom Piper model
 
 ebook2audiobook expects a zip containing exactly these files:
